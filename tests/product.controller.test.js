@@ -19,6 +19,17 @@ const mockUpload = () => mock.method(cloudinary.uploader, "upload", async () => 
 });
 const image = (name) => ({ public_id: `samarth/products/images/${name}`, url: `https://example.com/${name}.png` });
 
+test("retired product fields are absent from the schema and legacy API serialization", () => {
+  const retired = { hsnCode: "3004", gstRate: 12, ratings: 4.5, rewardPoints: 50 };
+  const product = Product.hydrate({ _id: id, ...body, ...retired });
+  for (const field of Object.keys(retired)) {
+    assert.equal(Product.schema.path(field), undefined);
+    assert.equal(product.toObject()[field], undefined);
+    assert.equal(JSON.parse(JSON.stringify(product))[field], undefined);
+  }
+  assert.equal(product.toJSON().name, body.name);
+});
+
 test("create stores the admin catalogue fields and never a price", async () => {
   references();
   mockUpload();
@@ -31,12 +42,12 @@ test("create stores the admin catalogue fields and never a price", async () => {
   assert.equal(res.code, 201);
   const data = res.body.data.toObject();
   assert.equal(data.price, undefined);
-  assert.equal(data.ratings, 4.6);
-  assert.equal(data.rewardPoints, 50);
+  assert.equal(data.ratings, undefined);
+  assert.equal(data.rewardPoints, undefined);
   assert.equal(data.inStock, false);
   assert.equal(data.isMostBuy, true);
-  assert.equal(data.hsnCode, "3004");
-  assert.equal(data.gstRate, 12);
+  assert.equal(data.hsnCode, undefined);
+  assert.equal(data.gstRate, undefined);
   assert.equal(data.buyNowUrl, "https://nohar.in/product/abc");
   assert.equal(data.images.length, 1);
 });
@@ -52,8 +63,7 @@ test("create requires at least one image", async () => {
 test("create rejects malformed admin fields", async () => {
   references();
   for (const invalid of [
-    { ratings: 6 }, { ratings: "abc" }, { rewardPoints: -1 }, { rewardPoints: 1.5 }, { gstRate: 7 },
-    { hsnCode: "12" }, { hsnCode: "abcd" }, { buyNowUrl: "https://evil.example/x" }, { bulkPurchaseUrl: "http://nohar.in" },
+    { buyNowUrl: "https://evil.example/x" }, { bulkPurchaseUrl: "http://nohar.in" },
     { inStock: "yes" }, { categoryId: {} }, { seo: "bad json" }, { name: " " },
   ]) {
     const bad = response();
@@ -80,7 +90,7 @@ test("partial update preserves omitted fields, images and SEO values", async () 
   assert.equal(res.code, 200);
   assert.equal(product.inStock, false);
   assert.equal(product.isMostBuy, true);
-  assert.equal(product.hsnCode, "3004");
+  assert.equal(product.hsnCode, undefined);
   assert.equal(product.images.length, 1);
   assert.equal(product.seo.titleTag, "Existing title");
   assert.equal(product.seo.metaDescription, "New description");
@@ -143,7 +153,7 @@ test("uploads without existingImages replace the list after successful persisten
   assert.equal(destroy.mock.calls[0].arguments[0], "samarth/products/images/old");
 });
 
-test("public listing filters inactive products, searches name/description/HSN, and paginates", async () => {
+test("public listing filters inactive products, searches name/description, and paginates", async () => {
   let filter;
   const query = {
     populate() { return this; }, sort() { return this; },
@@ -157,7 +167,7 @@ test("public listing filters inactive products, searches name/description/HSN, a
   assert.equal(res.code, 200);
   assert.equal(filter.isActive, true);
   assert.equal(filter.inStock, true);
-  assert.deepEqual(filter.$or.map((clause) => Object.keys(clause)[0]), ["name", "description", "hsnCode"]);
+  assert.deepEqual(filter.$or.map((clause) => Object.keys(clause)[0]), ["name", "description"]);
   assert.equal(filter.$or[0].name.$regex, "\\.\\*");
   assert.deepEqual(res.body.pagination, { page: 2, limit: 10, total: 25, pages: 3 });
 });

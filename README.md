@@ -44,12 +44,8 @@ Fields (matching the admin "Add product" page):
 | `description` | Description | Required on create |
 | `categoryId` | Category | Required on create; must exist |
 | `images` (files) | Product media | At least 1 on create, at most 10 |
-| `ratings` | Ratings | 0–5, rounded to 1 decimal; `""` clears it |
-| `rewardPoints` | Reward points | Whole number ≥ 0 |
 | `inStock` | In stock / Out of stock | Boolean, default `true` |
 | `isMostBuy` | Mark as most buy | Boolean, default `false` |
-| `hsnCode` | HSN code | Empty or 4–8 digits |
-| `gstRate` | GST rate | One of 0, 5, 12, 18, 28 (default 5) |
 | `buyNowUrl` | Buy now link | Empty or a `https://nohar.in/...` link |
 | `bulkPurchaseUrl` | Bulk purchase link | Empty or a `https://nohar.in/...` link |
 | `isActive`, `isFeatured` | — | Booleans |
@@ -66,7 +62,7 @@ On update:
 - Uploading `images` without `existingImages` replaces the whole list. Sending neither leaves the images unchanged.
 - The final list must have 1–10 images.
 
-List queries also support `search` (name, description or HSN code), `categoryId`, `isFeatured`, `isMostBuy` and `inStock`. Admin listing also supports `isActive`.
+List queries also support `search` (name or description), `categoryId`, `isFeatured`, `isMostBuy` and `inStock`. Admin listing also supports `isActive`.
 
 ## Categories — `/api/v1/categories`
 

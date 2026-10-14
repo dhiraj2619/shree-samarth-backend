@@ -5,7 +5,6 @@ const {
 } = require("../utils/helpers");
 
 const MAX_IMAGES = 10;
-const GST_RATES = [0, 5, 12, 18, 28];
 const NOHAR_URL = /^https:\/\/(www\.)?nohar\.in(\/\S*)?$/i;
 const NEW_IMAGE = "__new__";
 
@@ -15,13 +14,6 @@ const seoAliases = {
 };
 const shareFields = ["ogTitle", "ogDescription", "ogImageUrl", "ogType", "twitterTitle", "twitterDescription", "twitterImageUrl"];
 
-const number = (value, field) => {
-  if (!["number", "string"].includes(typeof value) || String(value).trim() === "" || !Number.isFinite(Number(value))) {
-    fail(`${field} must be a number`);
-  }
-  return Number(value);
-};
-
 const parseFields = (body = {}) => {
   const fields = {};
   for (const key of ["name", "description"]) {
@@ -30,29 +22,6 @@ const parseFields = (body = {}) => {
   if (body.categoryId !== undefined) fields.categoryId = validId(body.categoryId, "categoryId");
   for (const key of ["inStock", "isMostBuy", "isActive", "isFeatured"]) {
     if (body[key] !== undefined) fields[key] = boolean(body[key], key);
-  }
-  if (body.ratings !== undefined) {
-    if (body.ratings === null || body.ratings === "") fields.ratings = null;
-    else {
-      const ratings = number(body.ratings, "ratings");
-      if (ratings < 0 || ratings > 5) fail("ratings must be between 0 and 5");
-      fields.ratings = Math.round(ratings * 10) / 10;
-    }
-  }
-  if (body.rewardPoints !== undefined) {
-    const points = body.rewardPoints === "" ? 0 : number(body.rewardPoints, "rewardPoints");
-    if (!Number.isInteger(points) || points < 0) fail("rewardPoints must be a whole number of 0 or more");
-    fields.rewardPoints = points;
-  }
-  if (body.hsnCode !== undefined) {
-    const hsn = text(body.hsnCode, "hsnCode", { max: 8 });
-    if (hsn && !/^\d{4,8}$/.test(hsn)) fail("hsnCode must be 4 to 8 digits");
-    fields.hsnCode = hsn;
-  }
-  if (body.gstRate !== undefined) {
-    const rate = number(body.gstRate, "gstRate");
-    if (!GST_RATES.includes(rate)) fail(`gstRate must be one of ${GST_RATES.join(", ")}`);
-    fields.gstRate = rate;
   }
   for (const key of ["buyNowUrl", "bulkPurchaseUrl"]) {
     if (body[key] !== undefined) {
@@ -171,7 +140,7 @@ const listProducts = async (req, res, extraFilter = {}, admin = false) => {
     if (admin && query.isActive !== undefined) filter.isActive = boolean(query.isActive, "isActive");
     if (query.search !== undefined) {
       const pattern = searchPattern(query.search);
-      filter.$or = [{ name: pattern }, { description: pattern }, { hsnCode: pattern }];
+      filter.$or = [{ name: pattern }, { description: pattern }];
     }
     Object.assign(filter, extraFilter);
     const page = positiveInteger(query.page, 1, 100000);

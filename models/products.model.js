@@ -8,6 +8,12 @@ const mediaSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Older MongoDB records may still contain these retired fields.
+function omitRemovedFields(doc, result) {
+  for (const field of ["hsnCode", "gstRate", "ratings", "rewardPoints"]) delete result[field];
+  return result;
+}
+
 const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -24,12 +30,8 @@ const productSchema = new mongoose.Schema(
       ref: "Category",
       required: true,
     },
-    ratings: { type: Number, min: 0, max: 5, default: null },
-    rewardPoints: { type: Number, min: 0, default: 0 },
     inStock: { type: Boolean, default: true },
     isMostBuy: { type: Boolean, default: false },
-    hsnCode: { type: String, trim: true, default: "", match: [/^(\d{4,8})?$/, "hsnCode must be 4 to 8 digits"] },
-    gstRate: { type: Number, enum: [0, 5, 12, 18, 28], default: 5 },
     // Where the catalogue's "Buy now" and "Bulk purchase" buttons send visitors.
     buyNowUrl: { type: String, trim: true, default: "" },
     bulkPurchaseUrl: { type: String, trim: true, default: "" },
@@ -52,7 +54,11 @@ const productSchema = new mongoose.Schema(
       twitterImageUrl: { type: String, trim: true, default: "" },
     },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+    toJSON: { transform: omitRemovedFields },
+    toObject: { transform: omitRemovedFields },
+  },
 );
 
 productSchema.index({ categoryId: 1, isActive: 1 });
