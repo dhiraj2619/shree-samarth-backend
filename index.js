@@ -14,6 +14,7 @@ const { categoryRouter } = require("./routes/categories.route");
 const { referralRouter } = require("./routes/referrals.route");
 const { adminRouter } = require("./routes/admin.route");
 const { broadcastRouter } = require("./routes/broadcasts.route");
+const { distributorRouter } = require("./routes/distributors.route");
 
 cloudinary.config({
   cloud_name: CLOUDINARY_NAME,
@@ -35,6 +36,7 @@ app.use("/api/v1/categories", categoryRouter);
 app.use("/api/v1/referrals", referralRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/broadcasts", broadcastRouter);
+app.use("/api/v1/distributors", distributorRouter);
 
 
 app.use((req, res) => res.status(404).json({ success: false, message: "Route not found" }));
