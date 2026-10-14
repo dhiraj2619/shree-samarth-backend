@@ -12,9 +12,10 @@ productRouter.post("/add", isAdminAuth, productImages, controller.createProduct)
 productRouter.put("/update/:id", isAdminAuth, productImages, controller.updateProduct);
 productRouter.delete("/delete/:id", isAdminAuth, controller.deleteProduct);
 productRouter.get("/admin/get-all", isAdminAuth, controller.getAdminProducts);
+productRouter.get("/admin/get-by-id/:id", isAdminAuth, controller.getAdminProductById);
 productRouter.get("/get-all", controller.getAllProducts);
 productRouter.get("/featured", controller.getFeaturedProducts);
-productRouter.get("/get-by-collection/:collectionId", controller.getProductsBycollections);
+productRouter.get("/most-buy", controller.getMostBuyProducts);
 productRouter.get("/get-by-category/:categoryId", controller.getProductsByCategories);
 productRouter.get("/get-by-id/:id", controller.getProductById);
 

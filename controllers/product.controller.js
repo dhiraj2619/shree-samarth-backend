@@ -1,35 +1,13 @@
-const mongoose = require("mongoose");
-const cloudinary = require("cloudinary").v2;
 const Product = require("../models/products.model");
 const Category = require("../models/categories.model");
-const Collection = require("../models/collection.model");
+const {
+  fail, validId, boolean, text, array, object, positiveInteger, searchPattern, sendError, uploadImage, cleanup,
+} = require("../utils/helpers");
 
-const fail = (message, status = 400) => {
-  const error = new Error(message);
-  error.status = status;
-  throw error;
-};
-
-const validId = (value, field) => {
-  if (typeof value !== "string" || !mongoose.isObjectIdOrHexString(value)) {
-    fail(`Invalid ${field}`);
-  }
-  return value;
-};
-
-const boolean = (value, field) => {
-  if (value === true || value === "true") return true;
-  if (value === false || value === "false") return false;
-  return fail(`${field} must be true or false`);
-};
-
-const object = (value, field) => {
-  if (typeof value === "string") {
-    try { value = JSON.parse(value); } catch { fail(`${field} must be valid JSON`); }
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${field} must be an object`);
-  return value;
-};
+const MAX_IMAGES = 10;
+const GST_RATES = [0, 5, 12, 18, 28];
+const NOHAR_URL = /^https:\/\/(www\.)?nohar\.in(\/\S*)?$/i;
+const NEW_IMAGE = "__new__";
 
 const seoAliases = {
   titleTag: "seoTitle", metaDescription: "seoDescription", keywords: "seoKeywords",
@@ -37,25 +15,51 @@ const seoAliases = {
 };
 const shareFields = ["ogTitle", "ogDescription", "ogImageUrl", "ogType", "twitterTitle", "twitterDescription", "twitterImageUrl"];
 
+const number = (value, field) => {
+  if (!["number", "string"].includes(typeof value) || String(value).trim() === "" || !Number.isFinite(Number(value))) {
+    fail(`${field} must be a number`);
+  }
+  return Number(value);
+};
+
 const parseFields = (body = {}) => {
   const fields = {};
   for (const key of ["name", "description"]) {
-    if (body[key] !== undefined) {
-      if (typeof body[key] !== "string" || !body[key].trim()) fail(`${key} must be a non-empty string`);
-      fields[key] = body[key].trim();
-    }
+    if (body[key] !== undefined) fields[key] = text(body[key], key, { required: true });
   }
-  if (body.price !== undefined) {
-    if (!["number", "string"].includes(typeof body.price) || String(body.price).trim() === "" || !Number.isFinite(Number(body.price)) || Number(body.price) < 0) {
-      fail("price must be a non-negative number");
-    }
-    fields.price = Number(body.price);
-  }
-  for (const key of ["isActive", "isFeatured"]) {
+  if (body.categoryId !== undefined) fields.categoryId = validId(body.categoryId, "categoryId");
+  for (const key of ["inStock", "isMostBuy", "isActive", "isFeatured"]) {
     if (body[key] !== undefined) fields[key] = boolean(body[key], key);
   }
-  for (const key of ["categoryId", "collectionId"]) {
-    if (body[key] !== undefined) fields[key] = validId(body[key], key);
+  if (body.ratings !== undefined) {
+    if (body.ratings === null || body.ratings === "") fields.ratings = null;
+    else {
+      const ratings = number(body.ratings, "ratings");
+      if (ratings < 0 || ratings > 5) fail("ratings must be between 0 and 5");
+      fields.ratings = Math.round(ratings * 10) / 10;
+    }
+  }
+  if (body.rewardPoints !== undefined) {
+    const points = body.rewardPoints === "" ? 0 : number(body.rewardPoints, "rewardPoints");
+    if (!Number.isInteger(points) || points < 0) fail("rewardPoints must be a whole number of 0 or more");
+    fields.rewardPoints = points;
+  }
+  if (body.hsnCode !== undefined) {
+    const hsn = text(body.hsnCode, "hsnCode", { max: 8 });
+    if (hsn && !/^\d{4,8}$/.test(hsn)) fail("hsnCode must be 4 to 8 digits");
+    fields.hsnCode = hsn;
+  }
+  if (body.gstRate !== undefined) {
+    const rate = number(body.gstRate, "gstRate");
+    if (!GST_RATES.includes(rate)) fail(`gstRate must be one of ${GST_RATES.join(", ")}`);
+    fields.gstRate = rate;
+  }
+  for (const key of ["buyNowUrl", "bulkPurchaseUrl"]) {
+    if (body[key] !== undefined) {
+      const url = text(body[key], key, { max: 500 });
+      if (url && !NOHAR_URL.test(url)) fail(`${key} must be a https://nohar.in link`);
+      fields[key] = url;
+    }
   }
   for (const [group, keys] of [["seo", Object.keys(seoAliases)], ["socialShare", shareFields]]) {
     const nested = body[group] === undefined ? {} : object(body[group], group);
@@ -70,60 +74,74 @@ const parseFields = (body = {}) => {
   return fields;
 };
 
-const checkReferences = async (fields) => {
-  for (const [key, Model, label] of [["categoryId", Category, "Category"], ["collectionId", Collection, "Collection"]]) {
-    if (fields[key] !== undefined && !(await Model.exists({ _id: fields[key] }))) {
-      fail(`${label} not found`, 404);
+const checkCategory = async (fields) => {
+  if (fields.categoryId !== undefined && !(await Category.exists({ _id: fields.categoryId }))) fail("Category not found", 404);
+};
+
+// Works out the final image list before anything is uploaded.
+// `existingImages` lists the public_ids to keep, in display order. A "__new__" entry
+// marks where the next uploaded file goes, so one slot can be replaced in place.
+// Uploads not placed by a marker are appended. Without `existingImages`, uploads
+// replace the whole list, and no uploads leaves the images untouched.
+const planImages = (product, body, uploadCount, creating) => {
+  if (body.existingImages === undefined && !uploadCount) {
+    if (creating) fail("At least one product image is required");
+    return null;
+  }
+  const current = new Map(product.images.map((image) => [image.public_id, { public_id: image.public_id, url: image.url }]));
+  const slots = [];
+  let placed = 0;
+  if (body.existingImages !== undefined && !creating) {
+    const seen = new Set();
+    for (const entry of array(body.existingImages, "existingImages")) {
+      if (entry === NEW_IMAGE) {
+        if (placed >= uploadCount) fail(`existingImages has more "${NEW_IMAGE}" entries than uploaded images`);
+        slots.push(placed++);
+      } else {
+        if (typeof entry !== "string" || !current.has(entry)) fail("existingImages contains an image that does not belong to this product");
+        if (seen.has(entry)) fail("existingImages contains duplicates");
+        seen.add(entry);
+        slots.push(current.get(entry));
+      }
     }
   }
+  while (placed < uploadCount) slots.push(placed++);
+  if (slots.length < 1) fail("At least one product image is required");
+  if (slots.length > MAX_IMAGES) fail(`A product can have at most ${MAX_IMAGES} images`);
+  const kept = new Set(slots.filter((slot) => typeof slot !== "number").map((image) => image.public_id));
+  return { slots, removed: product.images.filter((image) => !kept.has(image.public_id)) };
 };
 
-const sendError = (res, error) => {
-  const status = error.status || (["ValidationError", "CastError"].includes(error.name) ? 400 : 500);
-  if (status === 500) console.error("Product operation failed:", error.message);
-  return res.status(status).json({ success: false, message: status === 500 ? "Unable to complete product operation" : error.message });
-};
-
-// Only delete assets uploaded into Samarth's namespace by this controller.
-const cleanup = async (assets) => {
-  await Promise.all(assets.filter((asset) => asset?.public_id?.startsWith("samarth/products/")).map(async (asset) => {
-    try { await cloudinary.uploader.destroy(asset.public_id); }
-    catch (error) { console.error("Product image cleanup failed:", error.message); }
-  }));
-};
-
-const uploadImage = async (file, folder, uploaded) => {
-  const result = await cloudinary.uploader.upload(`data:${file.mimetype};base64,${file.buffer.toString("base64")}`, { folder });
-  const asset = { public_id: result.public_id, url: result.secure_url };
-  uploaded.push(asset);
-  return asset;
-};
+const populated = (query) => query.populate("categoryId", "name");
 
 const writeProduct = async (req, res, updating) => {
   const uploaded = [];
   let saved = false;
   try {
-    const fields = parseFields(req.body);
+    const body = req.body || {};
+    const fields = parseFields(body);
     let product;
     if (updating) {
       product = await Product.findById(validId(req.params.id, "product id"));
       if (!product) fail("Product not found", 404);
     } else {
-      for (const key of ["name", "description", "categoryId", "collectionId"]) {
+      for (const key of ["name", "description", "categoryId"]) {
         if (fields[key] === undefined) fail(`${key} is required`);
       }
       product = new Product();
     }
-    await checkReferences(fields);
+    await checkCategory(fields);
     product.set(fields);
-    await product.validate();
-    const oldAssets = [];
     const imageFiles = req.files?.images || [];
-    if (imageFiles.length) {
-      const images = [];
-      for (const file of imageFiles) images.push(await uploadImage(file, "samarth/products/images", uploaded));
-      oldAssets.push(...product.images);
-      product.images = images;
+    const plan = planImages(product, body, imageFiles.length, !updating);
+    await product.validate();
+
+    const oldAssets = [];
+    if (plan) {
+      const fresh = [];
+      for (const file of imageFiles) fresh.push(await uploadImage(file, "samarth/products/images", uploaded));
+      product.images = plan.slots.map((slot) => (typeof slot === "number" ? fresh[slot] : slot));
+      oldAssets.push(...plan.removed);
     }
     if (req.files?.guideImage?.length) {
       oldAssets.push(product.guideImage);
@@ -135,59 +153,54 @@ const writeProduct = async (req, res, updating) => {
     return res.status(updating ? 200 : 201).json({ success: true, message: `Product ${updating ? "updated" : "created"} successfully`, data: product });
   } catch (error) {
     if (!saved) await cleanup(uploaded);
-    return sendError(res, error);
+    return sendError(res, error, "Product");
   }
 };
 
 const createProduct = (req, res) => writeProduct(req, res, false);
 const updateProduct = (req, res) => writeProduct(req, res, true);
 
-const positiveInteger = (value, fallback, max) => {
-  if (value === undefined) return fallback;
-  if (typeof value !== "string" || !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) < 1 || Number(value) > max) {
-    fail(`Pagination must use positive integers (maximum ${max})`);
-  }
-  return Number(value);
-};
-
 const listProducts = async (req, res, extraFilter = {}, admin = false) => {
   try {
     const query = req.query || {};
     const filter = admin ? {} : { isActive: true };
-    for (const key of ["categoryId", "collectionId"]) {
-      if (query[key] !== undefined) filter[key] = validId(query[key], key);
+    if (query.categoryId !== undefined) filter.categoryId = validId(query.categoryId, "categoryId");
+    for (const key of ["isFeatured", "isMostBuy", "inStock"]) {
+      if (query[key] !== undefined) filter[key] = boolean(query[key], key);
     }
-    if (query.isFeatured !== undefined) filter.isFeatured = boolean(query.isFeatured, "isFeatured");
     if (admin && query.isActive !== undefined) filter.isActive = boolean(query.isActive, "isActive");
     if (query.search !== undefined) {
-      if (typeof query.search !== "string" || query.search.length > 200) fail("search must be a string of at most 200 characters");
-      filter.name = { $regex: query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+      const pattern = searchPattern(query.search);
+      filter.$or = [{ name: pattern }, { description: pattern }, { hsnCode: pattern }];
     }
     Object.assign(filter, extraFilter);
     const page = positiveInteger(query.page, 1, 100000);
     const limit = positiveInteger(query.limit, 20, 100);
     const [products, total] = await Promise.all([
-      Product.find(filter).populate("categoryId", "name").populate("collectionId", "name").sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit),
+      populated(Product.find(filter)).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit),
       Product.countDocuments(filter),
     ]);
     return res.status(200).json({ success: true, message: "Products retrieved successfully", data: products, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
-  } catch (error) { return sendError(res, error); }
+  } catch (error) { return sendError(res, error, "Product"); }
 };
 
 const getAllProducts = (req, res) => listProducts(req, res);
 const getAdminProducts = (req, res) => listProducts(req, res, {}, true);
 const getFeaturedProducts = (req, res) => listProducts(req, res, { isFeatured: true });
-const byReference = (key) => async (req, res) => {
-  try { return await listProducts(req, res, { [key]: validId(req.params[key], key) }); }
-  catch (error) { return sendError(res, error); }
+const getMostBuyProducts = (req, res) => listProducts(req, res, { isMostBuy: true });
+const getProductsByCategories = async (req, res) => {
+  try { return await listProducts(req, res, { categoryId: validId(req.params.categoryId, "categoryId") }); }
+  catch (error) { return sendError(res, error, "Product"); }
 };
 
-const getProductById = async (req, res) => {
+const findOne = (admin) => async (req, res) => {
   try {
-    const product = await Product.findOne({ _id: validId(req.params.id, "product id"), isActive: true }).populate("categoryId", "name").populate("collectionId", "name");
+    const filter = { _id: validId(req.params.id, "product id") };
+    if (!admin) filter.isActive = true;
+    const product = await populated(Product.findOne(filter));
     if (!product) fail("Product not found", 404);
     return res.status(200).json({ success: true, message: "Product retrieved successfully", data: product });
-  } catch (error) { return sendError(res, error); }
+  } catch (error) { return sendError(res, error, "Product"); }
 };
 
 const deleteProduct = async (req, res) => {
@@ -196,12 +209,13 @@ const deleteProduct = async (req, res) => {
     if (!product) fail("Product not found", 404);
     await cleanup([...product.images, product.guideImage]);
     return res.status(200).json({ success: true, message: "Product deleted successfully" });
-  } catch (error) { return sendError(res, error); }
+  } catch (error) { return sendError(res, error, "Product"); }
 };
 
 module.exports = {
   createProduct, updateProduct, deleteProduct, getAllProducts, getAdminProducts,
-  getFeaturedProducts, getProductById,
-  getProductsBycollections: byReference("collectionId"),
-  getProductsByCategories: byReference("categoryId"),
+  getFeaturedProducts, getMostBuyProducts,
+  getProductById: findOne(false),
+  getAdminProductById: findOne(true),
+  getProductsByCategories,
 };
