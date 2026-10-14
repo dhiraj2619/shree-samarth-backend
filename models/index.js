@@ -6,4 +6,5 @@ module.exports = {
   QuoteSlider: require("./quoteslider.model"),
   Lead: require("./lead.model"),
   Referral: require("./referral.model"),
+  Broadcast: require("./broadcast.model"),
 };
