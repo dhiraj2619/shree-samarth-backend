@@ -8,4 +8,5 @@ module.exports = {
   Referral: require("./referral.model"),
   Broadcast: require("./broadcast.model"),
   Distributor: require("./distributor.model"),
+  Offer: require("./offer.model"),
 };
