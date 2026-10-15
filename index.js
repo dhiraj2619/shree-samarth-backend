@@ -16,6 +16,8 @@ const { adminRouter } = require("./routes/admin.route");
 const { broadcastRouter } = require("./routes/broadcasts.route");
 const { distributorRouter } = require("./routes/distributors.route");
 const { offerRouter } = require("./routes/offers.route");
+const { enquiryRouter } = require("./routes/enquiries.route");
+const { settingsRouter } = require("./routes/settings.route");
 
 cloudinary.config({
   cloud_name: CLOUDINARY_NAME,
@@ -24,6 +26,8 @@ cloudinary.config({
 });
 
 const app = express();
+// Render runs the app behind a proxy; trust its X-Forwarded-For so req.ip is the visitor (used by rate limits).
+app.set("trust proxy", 1);
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true, limit: "1mb" }));
@@ -39,6 +43,8 @@ app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/broadcasts", broadcastRouter);
 app.use("/api/v1/distributors", distributorRouter);
 app.use("/api/v1/offers", offerRouter);
+app.use("/api/v1/enquiries", enquiryRouter);
+app.use("/api/v1/settings", settingsRouter);
 
 
 app.use((req, res) => res.status(404).json({ success: false, message: "Route not found" }));
