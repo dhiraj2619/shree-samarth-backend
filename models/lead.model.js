@@ -12,6 +12,9 @@ const leadSchema = new mongoose.Schema(
     customerName: { type: String, required: true, trim: true },
     contact: { type: String, required: true, trim: true },
     email: { type: String, trim: true, lowercase: true, default: "" },
+    city: { type: String, trim: true, default: "" },
+    state: { type: String, trim: true, default: "" },
+    pincode: { type: String, trim: true, default: "" },
     enquiry: { type: String, required: true, trim: true },
     source: {
       type: String,

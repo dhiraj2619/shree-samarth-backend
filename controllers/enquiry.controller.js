@@ -40,11 +40,15 @@ const submitEnquiry = async (req, res) => {
       customerName: text(body.name ?? body.customerName ?? "", "name", { required: true, max: 100 }),
       contact: phone(body.phone ?? body.contact ?? ""),
       email: text(body.email ?? "", "email", { max: 150 }).toLowerCase(),
+      city: text(body.city ?? "", "city", { max: 100 }),
+      state: text(body.state ?? "", "state", { max: 100 }),
+      pincode: text(body.pincode ?? "", "pincode", { max: 6 }),
       enquiry: text(body.message ?? body.enquiry ?? "", "message", { required: true, max: 2000 }),
       leadType: "GENERAL_ENQUIRY",
       source: "web",
     };
     if (fields.email && !EMAIL.test(fields.email)) fail("email must be a valid email address");
+    if (fields.pincode && !/^[1-9]\d{5}$/.test(fields.pincode)) fail("pincode must be a valid 6-digit pincode");
     if (body.productId !== undefined && body.productId !== "") {
       const product = await Product.exists({ _id: validId(body.productId, "productId") });
       if (!product) fail("Product not found", 404);
@@ -71,7 +75,7 @@ const listEnquiries = async (req, res) => {
     }
     if (query.search !== undefined) {
       const pattern = searchPattern(query.search);
-      filter.$or = [{ customerName: pattern }, { contact: pattern }, { email: pattern }, { enquiry: pattern }];
+      filter.$or = [{ customerName: pattern }, { contact: pattern }, { email: pattern }, { city: pattern }, { pincode: pattern }, { enquiry: pattern }];
     }
     const page = positiveInteger(query.page, 1, 100000);
     const limit = positiveInteger(query.limit, 20, 100);
