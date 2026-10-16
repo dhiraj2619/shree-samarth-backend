@@ -99,6 +99,22 @@ A referral is one click on a product's "Buy now" or "Bulk purchase" button that 
 - Daily figures use the Asia/Kolkata timezone.
 - The public endpoints have no rate limit. Put them behind your host's or CDN's rate limiting before launch so the figures can't be inflated.
 
+## Ads / Wellness Solutions
+
+Base path: `/api/v1/ads`. Admin writes accept JSON or multipart form data with a required `title` (up to 150 characters), optional `videoLink` (HTTP/HTTPS, up to 500 characters), optional `image` upload, and `isActive` (default true). Images accept JPG, PNG, WebP, and GIF up to 5 MB. On update, omitted fields are preserved; `removeImage=true` clears the image, and a new upload replaces it. Old images are removed only after saving succeeds.
+
+| Method | Path | Access |
+| --- | --- | --- |
+| POST | `/add` | Admin |
+| PUT | `/update/:id` | Admin |
+| DELETE | `/delete/:id` | Admin |
+| GET | `/admin/get-all` | Admin, includes drafts |
+| GET | `/admin/get-by-id/:id` | Admin |
+| GET | `/get-all` | Public, active ads only |
+| GET | `/get-by-id/:id` | Public, active ads only |
+
+Lists accept `page`, `limit` (maximum 100), and `search` (title). The admin list also accepts `isActive`. The admin Ads screen supports create/edit/delete, image preview/removal, and status filtering. The website carousel loads active ads and plays YouTube or direct MP4/WebM/OGG videos; other video URLs open in a new tab. Restart the local backend or deploy these backend changes before using the new endpoints on a hosted server.
+
 ## Tests
 
 Run `npm test` or `node --test`. Tests mock MongoDB and Cloudinary and do not connect to external services.

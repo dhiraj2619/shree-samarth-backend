@@ -20,11 +20,13 @@ const adSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+      maxlength: 150,
     },
     videoLink: {
       type: String,
       default: null,
       trim: true,
+      maxlength: 500,
     },
     image: {
       type: mediaSchema,
